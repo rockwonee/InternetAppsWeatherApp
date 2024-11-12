@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather App</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <link href='https://api.mapbox.com/mapbox-gl-js/v2.9.1/mapbox-gl.css' rel='stylesheet' />
+    <script src='https://api.mapbox.com/mapbox-gl-js/v2.9.1/mapbox-gl.js'></script>
+
+</head>
+<body>
+
+<div class="card">
+    <div id="app">
+        <h1 class="outline-header">Weather Data</h1>
+        <div class="search">
+            <input type="text" placeholder="Enter City Name" v-model="city" spellcheck="false">
+        
+        <button @click="fetchData"><img src="Images/search.png"></button>
+        </div>
+        <div v-if="error">
+            <p style="color: red;">Error: {{ error }}</p>
+        </div>
+
+        <div v-if="data">
+            <h2 class="outline-text">Choose the day you wish to display for {{ data.city.name }}</h2>
+            <div class="dates">
+                <button class="day-buttons" v-for="day in singleDay" :key="day" @click="chooseDate(day)">
+                    {{day}}
+                </button>
+            </div>
+
+
+            <div v-if="chosenDate">
+                <h3 class="no-outline-text">Weather Details for {{chosenDate}} </h3>
+                <ul>
+                    <div class="hourly">
+                        <div class="labels">
+                            <h4>Hours</h4>
+                            <h4>Temperatures</h4>
+                            <h4>Wind Speed</h4>
+                            <h4>Rain Chance</h4>
+                        </div>
+                        <div class="hour"  v-for="hour in hourlyData" :key="hour.time">
+                            <div>
+                            <span class="time"> {{hour.time}} </span>
+                            <span class="temp"> {{hour.temp}}°C </span>
+                            <span class="wind"> {{hour.windSpeed}}km/hr </span>
+                            <span class="rain"> {{hour.rainfall}}% </span>
+                            </div>
+                            <script>console.log(hour.weather);</script>
+                            
+                            <img :src="getWeatherType(hour.weather)" alt="Weather weatherType" class="weather-image" />
+                        </div>
+                    </div>
+                    <div class="summary">
+                        <div class="left">
+                            <div class="map-box">
+                                <h1>Map</h1>
+                                <div v-if="mapImage">
+                                    <img :src="mapImage" alt="Static Map" style="max-width: 100%; height: auto;"/>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="right">
+                            <div class="summary-box"><h1>Summary</h1>
+                                <p v-if="packUmbrella">There is rain scheduled within the next 3 days. Pack an umbrella.</p>
+                                <p v-else>There is no rain scheduled.</p>
+                                <p v-if="packColdClothes">The temperature is below 8°. You should pack for cold weather.</p>
+                                <p v-else-if="packWarmClothes">The temperature is above 24°. You should pack for warm weather.</p>
+                                <p v-else-if="packMildClothes">The temperature is between 8° and 24°. You should pack for mild weather.</p>
+                            </div>
+                            <div class="pollution-box">
+                                <h1>Pollution <br></h1>
+                                <div v-if="pollutionValues.lowPollution.length > 0">
+                                    <p>The gases below are at a safe level:</p>
+                                    <p v-for="type in pollutionValues.lowPollution" :key="type" v-html="type">{{type}}</p>
+                                </div> 
+                                <div v-if="pollutionValues.highPollution.length > 0">
+                                    <h3 class="warning"><br>WARNING</h3>
+                                    <p>These value(s) are too high:</p>
+                                    <p v-for="type in pollutionValues.highPollution" :key="type" v-html="type">{{type}}</p>
+                                    <p><br><h2>Health Risks</h2></p>
+                                    <p v-for="type in pollutionValues.healthRisks" :key="type"> {{type}}</p>
+                                </div>
+                            </div> 
+                        </div>  
+                    </div>
+                    
+                    
+                </ul>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+</body>
+</html>
+
+<script>
+
+    // initalising the Vue app
+    new Vue({
+        el: '#app',
+        data: {
+            // initialising all the data variables, resetting some to null 
+            city: '',
+            weatherData: [],
+            hourlyData: [],
+            locationData: [],
+            chosenDate: null,
+            error: null,
+            data: null,
+
+            longitude: null,
+            latitude: null,
+
+            pollution: null,
+            pollutionComponents: null,
+            pollutionSO2: null,
+            pollutionNO2: null,
+            pollutionPM10: null,
+            pollutionPM2_5: null,
+            pollutionO3: null,
+            pollutionCO: null,
+
+            // importing weather images
+            weatherImages: {
+                Clear: '/Images/clear.png',
+                Clouds: '/Images/cloudy.png',
+                Rain: '/Images/rain.png',
+            },
+        },
+
+        
+
+        computed: {
+            
+            // retrieving a single day from the 3 days
+            singleDay() {
+                const days = this.weatherData.map(day => day.date);
+                return [...new Set(days)];
+            },
+
+            // telling teh user to pack an umbrella
+            packUmbrella() {
+                return this.weatherData.some(day => day.rainfall > 0);
+            },
+            // telling teh user to pack cold, mild and warm clothes
+            packColdClothes() {
+                return this.weatherData.some(day => day.temp < 8);
+            },
+
+            packMildClothes() {
+                return this.weatherData.some(day => 8 < day.temp < 24);
+            },
+
+            packWarmClothes() {
+                return this.weatherData.some(day => day.temp > 24);
+            },
+
+            // func to return True if there is no elevated pollution
+            noPollution(){
+                return this.pollution === 1;
+            },
+
+            // returns the safe gas values, high gas values and the health risks
+            pollutionValues() {
+                const lowPollution = [];
+                const highPollution = [];
+                const healthRisks = [];
+
+                // a scale for the gases, given on OpenWeatherMap
+                const indexScale = {
+                    so2: [20, 80, 250, 350],
+                    no2: [40, 70, 150, 200],
+                    pm10: [20, 50, 100, 200],
+                    pm2_5: [10, 25, 50, 75],
+                    o3: [60, 100, 140, 180],
+                    co: [4400, 9400, 12400, 15400]
+                };
+
+
+                // setting the index levels
+                const findIndexLevel = (i, indexScale) => {
+                    if (i > indexScale[3]) return 5;
+                    if (i > indexScale[2]) return 4;
+                    if (i > indexScale[1]) return 3;
+                    if (i > indexScale[0]) return 2;
+
+                    return 1;
+                }
+
+                // pushing the values to the associated lists depnding on if the indexes are high or not
+                const SO2Index = findIndexLevel(this.pollutionSO2, indexScale.so2);
+                if (SO2Index > 1) {
+                    healthRisks.push(`High levels of SO2 can lead to swollen lungs and difficulty breathing.`);
+                    highPollution.push(`<span class="pollution-type">SO2: ${this.pollutionSO2}</span><span class="pollution-index"> Index Level: ${SO2Index}</span>`);
+                } else lowPollution.push(`<span class="pollution-type">SO2: ${this.pollutionSO2}</span><span class="pollution-index"> Index Level: ${SO2Index}</span>`);
+
+                const NO2Index = findIndexLevel(this.pollutionNO2, indexScale.no2);
+                if (NO2Index > 1) {
+                    healthRisks.push(`High levels of NO2 can cause increased inflammation of airways and reduced lung function.`)
+                    highPollution.push(`<span class="pollution-type">NO2: ${this.pollutionNO2}</span><span class="pollution-index"> Index Level: ${NO2Index}</span>`);
+                } else lowPollution.push(`<span class="pollution-type">NO2: ${this.pollutionNO2}</span> Index Level: ${NO2Index}</span>`);
+
+                const PM10Index = findIndexLevel(this.pollutionPM10, indexScale.pm10);
+                if (PM10Index > 1) {
+                    healthRisks.push(`High levels of PM10 can cause inflammation and worsening of heart and lung diseases.`)
+                    highPollution.push(`<span class="pollution-type">PM10: ${this.pollutionPM10}</span> <span class="pollution-index">Index Level: ${PM10Index}</span>`);
+                } else lowPollution.push(`<span class="pollution-type">PM10: ${this.pollutionPM10}</span> <span class="pollution-index">Index Level: ${PM10Index}</span>`);
+
+                const PM2_5Index = findIndexLevel(this.pollutionPM2_5, indexScale.pm2_5);
+                if (PM2_5Index > 1) {
+                    healthRisks.push(`High levels of PM2.5 can cause inflammation and worsening of heart and lung diseases.`)
+                    highPollution.push(`<span class="pollution-type">PM2.5: ${this.pollutionPM2_5}</span> <span class="pollution-index">Index Level: ${PM2_5Index}</span>`);
+                } else lowPollution.push(`<span class="pollution-type">PM2.5: ${this.pollutionPM2_5}</span> <span class="pollution-index">Index Level: ${PM2_5Index}</span>`);
+
+                const O3Index = findIndexLevel(this.pollutionO3, indexScale.o3);
+                if (O3Index > 1) {
+                    healthRisks.push(`High levels of O3 (Ozone) can damage respiratory tract tissue and result in coughing, chest tightness and worsening asthma.`)
+                    highPollution.push(`<span class="pollution-type">O3: ${this.pollutionO3}</span> <span class="pollution-index">Index Level: ${O3Index}</span>`);
+                } else lowPollution.push(`<span class="pollution-type">O3: ${this.pollutionO3}</span> <span class="pollution-index">Index Level: ${O3Index}</span>`);
+
+                const COIndex = findIndexLevel(this.pollutionCO, indexScale.co);
+                if (COIndex > 1) {
+                    healthRisks.push(`High levels of CO can lead to fatigue, headaches and dizziness.`)
+                    highPollution.push(`<span class="pollution-type">CO: ${this.pollutionCO}</span> <span class="pollution-index">Index Level: ${COIndex}</span>`);
+                } else lowPollution.push(`<span class="pollution-type">CO: ${this.pollutionCO}</span> <span class="pollution-index">Index Level: ${COIndex}</span>`);
+                
+                // return the 3 lists
+                return {lowPollution, highPollution, healthRisks};
+            },    
+    },
+        methods: {
+            // getting the data
+            async fetchData() {    
+                this.error = null; // Reset error message
+                this.chosenDate = null;
+                this.hourlyData = [];
+
+                if(!this.city){
+                    this.error = "Please enter a valid city name";
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`http://localhost:3000/data?city=${this.city}`);
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    this.data = await response.json(); // Store the fetched data
+                    this.weatherData = this.formatWeatherData(this.data.list);
+
+                    await this.fetchLocations();
+
+                } catch (error) {
+                    console.error('Error fetching data:', error);
+                    this.error = 'Failed to fetch data from the server'; // Display error message
+                }
+            },
+
+            // getting the longitude and latitude for the pollution API
+            async fetchLocations() {
+                this.error = null; // Reset error message
+
+                if(!this.city){
+                    this.error = "Please enter a valid city name";
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`http://localhost:3000/locations?city=${this.city}`);
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    const locationData = await response.json();
+                    
+                    // getting the longitude and latitude values
+                    if (locationData.length > 0) {
+                        this.latitude = locationData[0].lat;
+                        this.longitude = locationData[0].lon;
+
+                        await this.fetchPollution();
+                        await this.fetchMap();
+                    }
+                
+                 else {
+                    this.error = 'No location data found'; // Display error message
+                    }
+                } catch (err) {
+                    console.error("Error fetching location data: ", err);
+                    this.error = "Failed to fetch location data";
+                }
+
+            },
+            // getting the pollution API
+            async fetchPollution() {
+                this.error = null; // Reset error message
+
+                if(!this.latitude || !this.longitude){
+                    this.error = "Please get location data first";
+                    return;
+                }
+
+                try {
+                    console.log(`Fetching pollution data for lat: ${this.latitude}, lon: ${this.longitude}`);
+
+                    const response = await fetch(`http://localhost:3000/pollution?lat=${this.latitude}&lon=${this.longitude}`);
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    const pollutionData = await response.json();
+                    
+                    // getting each pollutant component values
+                    if (pollutionData.list && pollutionData.list.length > 0){
+                        this.pollution = pollutionData.list[0].main.aqi; // getting AQI of pollution
+                        this.pollutionComponents = pollutionData.list[0].components;
+                        this.pollutionSO2 = pollutionData.list[0].components.so2;
+                        this.pollutionNO2 = pollutionData.list[0].components.no2;
+                        this.pollutionPM10 = pollutionData.list[0].components.pm10;
+                        this.pollutionPM2_5 = pollutionData.list[0].components.pm2_5;
+                        this.pollutionO3 = pollutionData.list[0].components.o3;
+                        this.pollutionCO = pollutionData.list[0].components.co;
+                        
+                    } else {
+                        this.error = 'No pollution data found'; // Display error message
+                    }
+                } catch (err) {
+                    console.error("Error fetching pollution data: ", err);
+                    this.error = "Failed to fetch pollution data";
+                }
+
+            },
+            
+            // fetching the map from Mapbox API in server
+            async fetchMap() {
+                this.error = null; // Reset error message
+
+                if(!this.latitude || !this.longitude){
+                    this.error = "Please get location data first";
+                    return;
+                }
+
+                try {
+                    console.log(`Fetching map for lat: ${this.latitude}, lon: ${this.longitude}`);
+
+                    const response = await fetch(`http://localhost:3000/map?lat=${this.latitude}&lon=${this.longitude}`);
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    // had to use imported Map GL JS library
+                    const mapData = await response.json();
+                    this.mapImage = mapData.image;
+                } catch (err) {
+                    console.error("Error fetching map data: ", err);
+                    this.error = "Failed to fetch map data";
+                }
+            },
+
+            // gets the weather type in order to display the correct weather image
+            getWeatherType(weatherType) {
+                return this.weatherImages[weatherType] || "Images/unknown.png";
+            },
+
+            // for the date buttons
+            chooseDate(date) {
+                this.chosenDate = date;
+                this.hourlyData = this.weatherData.filter(hour => hour.date === date);
+            },
+
+            
+
+
+            // Formatting the data for display
+            formatWeatherData(list) {
+                const threeDays = [];                           // make an empty list for the three days of data
+                const today = new Date();                       // start from todays date
+                today.setHours(0, 0, 0, 0);                     // set to midnight
+
+                const firstDay = new Date(today);               // the first day is going to be 'tomorrow'
+                firstDay.setDate(today.getDate() + 1);          // incrementing 
+
+                const secondDay = new Date(firstDay);
+                secondDay.setDate(firstDay.getDate() + 1);
+
+                const thirdDay = new Date(secondDay);
+                thirdDay.setDate(secondDay.getDate() + 1);
+
+                const fourthDay = new Date(thirdDay);
+                fourthDay.setDate(thirdDay.getDate() + 1);
+
+                for (const item of list) {
+
+                    const [dateKey, timeKey] = item.dt_txt.split(" ");
+                    console.log(timeKey);
+                    
+                    // retrieving the correct date and time values
+                    // making sure to output them correctly
+                    const date = new Date(item.dt * 1000);
+                    const dateValue = date.toDateString();
+                    const itemDate = new Date(`${dateKey}T00:00:00`);
+
+                    if (itemDate >= firstDay && itemDate < fourthDay) {
+                        threeDays.push({
+                            date: dateValue,
+                            time: timeKey,
+                            temp: (item.main.temp - 273.15).toFixed(1),
+                            windSpeed: item.wind.speed,
+                            rainfall: (item.pop * 100).toFixed(0),
+                            weather: item.weather[0].main
+                        });
+                    }
+                }
+                
+                return threeDays;
+            }
+
+            
+
+        },
+    });
+    </script>
